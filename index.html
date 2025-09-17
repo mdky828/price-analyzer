@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>요금표 분석 시스템</title>
+  <style>
+    /* === 기본 스타일 (축약) === */
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:'Segoe UI',sans-serif; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); min-height:100vh; color:#2c3e50; }
+    .container { max-width:1400px; margin:0 auto; padding:20px; }
+    .header { text-align:center; margin-bottom:30px; color:white; }
+    .header h1 { font-size:2.2rem; margin-bottom:10px; }
+    .main-panel,.comparison-panel,.heatmap-panel,.table-panel { background:white; border-radius:16px; box-shadow:0 10px 25px rgba(0,0,0,0.1); margin-bottom:30px; }
+    .input-section { background:#f8fafc; padding:20px; }
+    .input-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+    textarea { width:100%; height:160px; padding:12px; border:2px solid #e2e8f0; border-radius:8px; font-family:Consolas,monospace; }
+    .btn { background:linear-gradient(135deg,#667eea,#764ba2); color:white; padding:10px 20px; border:none; border-radius:8px; cursor:pointer; margin:5px; }
+    .btn-secondary { background:linear-gradient(135deg,#64748b,#475569); }
+    .results-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .output { white-space:pre-wrap; background:white; padding:12px; border:1px solid #e2e8f0; border-radius:8px; font-family:Consolas,monospace; font-size:13px; max-height:250px; overflow:auto; }
+    .empty-state { text-align:center; color:#94a3b8; padding:20px; border:2px dashed #cbd5e1; margin-top:10px; }
+    .change-item { margin:8px 0; padding:10px; border-radius:8px; }
+    .price-increase{background:#fecaca;border-left:4px solid #ef4444;}
+    .price-decrease{background:#bbf7d0;border-left:4px solid #22c55e;}
+    .date-added{background:#bfdbfe;border-left:4px solid #3b82f6;}
+    .date-removed{background:#fed7aa;border-left:4px solid #f59e0b;}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>⚡ 요금표 분석 시스템</h1>
+    <p>전문적인 요금 변경 분석 및 비교 도구</p>
+  </div>
+
+  <!-- 입력 -->
+  <div class="main-panel">
+    <div class="input-section">
+      <div class="input-grid">
+        <div>
+          <label>기준 요금표 <span style="background:#667eea;color:white;padding:2px 8px;border-radius:12px;">1st</span></label>
+          <textarea id="input1" placeholder="예시:\n1/15~1/20 50000\n1/25 60000"></textarea>
+        </div>
+        <div>
+          <label>비교 요금표 <span style="background:#764ba2;color:white;padding:2px 8px;border-radius:12px;">2nd</span></label>
+          <textarea id="input2" placeholder="예시:\n1/15~1/20 55000\n1/25~1/27 65000"></textarea>
+        </div>
+      </div>
+      <button class="btn" onclick="parseData()">📊 분석 시작</button>
+      <button class="btn btn-secondary" onclick="clearInputs()">🗑️ 초기화</button>
+    </div>
+    <div id="resultsSection" style="display:none;padding:20px;">
+      <div class="results-grid">
+        <div><h3>기준 요금표 분석</h3><div id="output1" class="output"></div></div>
+        <div><h3>비교 요금표 분석</h3><div id="output2" class="output"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 테이블 -->
+  <div id="tablePanel" class="table-panel" style="display:none;">
+    <div style="background:#f59e0b;color:white;padding:10px;">
+      <button class="table-btn btn" onclick="showTable('both',this)">전체</button>
+      <button class="table-btn btn" onclick="showTable('first',this)">기준</button>
+      <button class="table-btn btn" onclick="showTable('second',this)">비교</button>
+    </div>
+    <div id="tableContainer" style="padding:20px;"></div>
+  </div>
+
+  <!-- 히트맵 -->
+  <div id="heatmapPanel" class="heatmap-panel" style="display:none;">
+    <div style="background:#7c3aed;color:white;padding:10px;">
+      <button class="heatmap-btn btn" onclick="showHeatmap('both',this)">전체</button>
+      <button class="heatmap-btn btn" onclick="showHeatmap('first',this)">기준</button>
+      <button class="heatmap-btn btn" onclick="showHeatmap('second',this)">비교</button>
+    </div>
+    <div id="heatmapContainer" style="padding:20px;"></div>
+  </div>
+
+  <!-- 비교 -->
+  <div id="comparisonPanel" class="comparison-panel" style="display:none;">
+    <div style="background:#047857;color:white;padding:10px;">변경사항 분석 리포트</div>
+    <div id="comparisonOutput" style="padding:20px;"></div>
+  </div>
+</div>
+
+<script>
+/* ========= 입력 초기화 ========= */
+function clearInputs(){
+  document.getElementById('input1').value='';
+  document.getElementById('input2').value='';
+  document.getElementById('resultsSection').style.display='none';
+  document.getElementById('comparisonPanel').style.display='none';
+  document.getElementById('heatmapPanel').style.display='none';
+  document.getElementById('tablePanel').style.display='none';
+}
+
+/* ========= 메인 파싱 ========= */
+function parseData(){
+  const input1=document.getElementById('input1').value.trim();
+  const input2=document.getElementById('input2').value.trim();
+  const output1=document.getElementById('output1');
+  const output2=document.getElementById('output2');
+  const comparison=document.getElementById('comparisonOutput');
+  const results=document.getElementById('resultsSection');
+  const compPanel=document.getElementById('comparisonPanel');
+
+  if(!input1 && !input2){ alert("최소 하나 입력"); return; }
+  results.style.display='block';
+
+  let result1=input1?parseDataSection(input1,1):null;
+  let result2=input2?parseDataSection(input2,2):null;
+  output1.innerHTML=result1?result1.output:'<div class="empty-state">없음</div>';
+  output2.innerHTML=result2?result2.output:'<div class="empty-state">없음</div>';
+
+  if(result1&&result2){
+    const comp=compareDataSets(result1.dateToPrice,result2.dateToPrice);
+    comparison.innerHTML=comp.details;
+    compPanel.style.display='block';
+  } else compPanel.style.display='none';
+
+  if(result1||result2){generateTable(result1,result2);document.getElementById('tablePanel').style.display='block';}
+  if(result1||result2){generateHeatmap(result1,result2);document.getElementById('heatmapPanel').style.display='block';}
+}
+
+/* ========= 파싱 함수 ========= */
+function parseDataSection(input,sec){
+  let output="";const lines=input.split('\n').filter(l=>l.trim()!=="");
+  const dateToPrice=new Map();let minDate=null,maxDate=null;
+  for(let line of lines){
+    const parts=line.trim().split(/\s+/);
+    if(parts.length>=2){
+      let date=parts[0];let price=parseInt(parts[1].replace(/,/g,''));
+      let today=new Date().getFullYear();
+      if(date.includes('~')){
+        let [m1,d1]=date.split('~')[0].split('/').map(Number);
+        let [m2,d2]=date.split('~')[1].split('/').map(Number);
+        let start=new Date(today,m1-1,d1),end=new Date(today,m2-1,d2);
+        for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+          let key=formatDate(d);dateToPrice.set(key,new Set([price]));
+          if(!minDate||d<minDate)minDate=new Date(d);
+          if(!maxDate||d>maxDate)maxDate=new Date(d);
+        }
+      } else {
+        let [m,d]=date.split('/').map(Number);
+        let dt=new Date(today,m-1,d);
+        let key=formatDate(dt);dateToPrice.set(key,new Set([price]));
+        if(!minDate||dt<minDate)minDate=dt;if(!maxDate||dt>maxDate)maxDate=dt;
+      }
+    }
+  }
+  if(minDate&&maxDate) output+=`📅 범위: ${formatDate(minDate)} ~ ${formatDate(maxDate)}\n`;
+  else output+="⚠️ 데이터 없음\n";
+  return {output,dateToPrice,minDate,maxDate};
+}
+
+/* ========= 비교 ========= */
+function compareDataSets(d1,d2){
+  const allDates=new Set([...d1.keys(),...d2.keys()]);
+  const sorted=[...allDates].sort((a,b)=>new Date(a)-new Date(b));
+  let details="";
+  for(const date of sorted){
+    const p1=d1.get(date)?[...d1.get(date)][0]:null;
+    const p2=d2.get(date)?[...d2.get(date)][0]:null;
+    if(p1&&p2&&p1!==p2){
+      details+=`<div class="change-item ${p2>p1?'price-increase':'price-decrease'}">${date}: ${p1}원 → ${p2}원</div>`;
+    } else if(!p1&&p2){
+      details+=`<div class="change-item date-added">${date}: 추가 (${p2}원)</div>`;
+    } else if(p1&&!p2){
+      details+=`<div class="change-item date-removed">${date}: 제거 (${p1}원)</div>`;
+    }
+  }
+  if(!details) details="✅ 동일";
+  return {details};
+}
+
+/* ========= 유틸 ========= */
+function formatDate(d){let y=d.getFullYear(),m=('0'+(d.getMonth()+1)).slice(-2),dd=('0'+d.getDate()).slice(-2);return `${y}-${m}-${dd}`;}
+
+/* ========= 테이블 ========= */
+let tableData1=null,tableData2=null;
+function generateTable(r1,r2){tableData1=r1;tableData2=r2;showTable('both');}
+function showTable(mode,btnEl){
+  document.querySelectorAll('.table-btn').forEach(b=>b.classList.remove('active'));
+  if(btnEl) btnEl.classList.add('active');
+  let cont=document.getElementById('tableContainer');cont.innerHTML='';
+  let html='';
+  if((mode==='both'||mode==='first')&&tableData1){html+="<h4>기준</h4>"+renderTable(tableData1.dateToPrice);}
+  if((mode==='both'||mode==='second')&&tableData2){html+="<h4>비교</h4>"+renderTable(tableData2.dateToPrice);}
+  cont.innerHTML=html;
+}
+function renderTable(map){let rows="";[...map.entries()].sort().forEach(([d,p])=>{rows+=`<tr><td>${d}</td><td>${[...p][0]}원</td></tr>`});return `<table border=1 cellspacing=0 cellpadding=4>${rows}</table>`;}
+
+/* ========= 히트맵 ========= */
+let heatmapData1=null,heatmapData2=null;
+function generateHeatmap(r1,r2){heatmapData1=r1;heatmapData2=r2;showHeatmap('both');}
+function showHeatmap(mode,btnEl){
+  document.querySelectorAll('.heatmap-btn').forEach(b=>b.classList.remove('active'));
+  if(btnEl) btnEl.classList.add('active');
+  let cont=document.getElementById('heatmapContainer');cont.innerHTML='';
+  let html='';
+  if((mode==='both'||mode==='first')&&heatmapData1){html+="<h4>기준</h4>"+renderHeatmap(heatmapData1.dateToPrice);}
+  if((mode==='both'||mode==='second')&&heatmapData2){html+="<h4>비교</h4>"+renderHeatmap(heatmapData2.dateToPrice);}
+  cont.innerHTML=html;
+}
+function renderHeatmap(map){
+  let dates=[...map.keys()].map(d=>new Date(d));
+  if(!dates.length) return "데이터 없음";
+  let min=new Date(Math.min(...dates)),max=new Date(Math.max(...dates));
+  return `📅 ${formatDate(min)} ~ ${formatDate(max)} (${map.size}일)`;
+}
+
+/* ========= CSV 다운로드 ========= */
+function downloadFile(content, filename, contentType){
+  const withBom=contentType==='text/csv' ? '\uFEFF'+content : content;
+  const blob=new Blob([withBom],{type:contentType});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;a.download=filename;
+  document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
